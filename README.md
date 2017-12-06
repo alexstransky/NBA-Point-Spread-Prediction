@@ -4,44 +4,46 @@ Databases and Data Visualization Project
 **CSVs:**
 
 *bigspreaddata.csv*
- - contains the raw data used to generate all models
+ - Contains the raw data used to generate all models
 
 *resultsDiff.csv*
- - contains the results of all of the regression models
- - used for Regression Results notebook
+ - Contains the results of all of the regression models
+ - Used for Regression Results notebook
 
 *resultsClass.csv*
- - contains the results of all of the classification models
- - used for Class Results notebook
+ - Contains the results of all of the classification models
+ - Used for Class Results notebook
 
 **Modeling Notebooks:**
 
 *EDA and PCA.rmd*
 
- - contains the initial reading of the bigspreaddata.csv
- - demonstrates initial exploratory data analysis and principal component analysis
- - must be run prior to initializing any of the Regression or Classification modeling notebooks
+ - Contains the initial reading of the bigspreaddata.csv
+ - Demonstrates initial exploratory data analysis and principal component analysis
+ - Must be run prior to initializing any of the Regression or Classification modeling notebooks
 
 *Linear Regression and Set Generation.rmd*
- - contains linear regression modeling
+ - Contains linear regression modeling
 
 *Random Forest Regression.rmd*
- - contains random forest regression modeling
+ - Contains random forest regression modeling
 
 *XGBoost Regression.rmd*
- - contains XG Boost regression modeling
+ - Contains XG Boost regression modeling
 
 *LASSO Regression.rmd*
- - contains LASSO regression modeling
+ - Contains LASSO regression modeling
 
 *Classification.rmd*
- - contains all classification models that were produced
+ - Contains all classification models that were produced
  
 **Results Notebooks:**
- - these contain the generation of all plots used for the final project
+ - These contain the generation of all plots used for the final project
+ - These notebooks can be run solely using the resultsDiff.csv or resultsClass.csv
+ - Do not require running the EDA and PCA notebook
 
 *Regression Results.rmd*
- - contains the results and analysis of all regression models built to predict final point spread
+ - Contains the results and analysis of all regression models built to predict final point spread
 
 *Class Results.rmd*
- - contains the results and analysis of all classification models built to predict winners
+ - Contains the results and analysis of all classification models built to predict winners
