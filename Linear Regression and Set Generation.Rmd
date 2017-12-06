@@ -1,0 +1,204 @@
+---
+title: "Linear Regression and Generating Training/Testing Sets"
+author: "Alex Stransky"
+date: "November 22, 2017"
+output: html_notebook
+---
+
+Before implementing any of the ensemble or regularized regression methods, it's beneficial to examine the capability of the linear modeling, both using the principal component scores and the raw predictors. First, let's see how good Vegas is at predicting the final point differential and the Home and Road team scores.
+
+```{r}
+require(dplyr)
+require(ggplot2)
+require(Metrics)
+```
+
+## Generate training and testing sets
+
+The data comes from running the "EDA and Factor Analysis" notebook, where the dataframes sdexclouts, exclouts.H, and exclouts.R were generated. To conserve space, the code for generating those data frames from the raw data is not included here. 
+
+We'll want to set the seed to get a consistent sampling across all of the different data sets and models. I decided to go with a 75/25 split for the training and testing sets. I tested out a couple different seed setting to find a value that gave relatively similar mean values for the label across the different data frames (don't want training and testing sets that are too dissimilar).
+
+```{r}
+set.seed(100)
+id <- sample(2, nrow(sdexclouts), replace = TRUE, prob = c(0.75, 0.25))
+
+sdtrain <- sdexclouts[(id == 1),]
+sdtest <- sdexclouts[(id == 2),]
+
+Htrain <- exclouts.H[(id == 1),]
+Htest <- exclouts.H[(id == 2),]
+
+Rtrain <- exclouts.R[(id == 1),]
+Rtest <- exclouts.R[(id == 2),]
+
+summary(sdtrain$Diff)
+summary(sdtest$Diff)
+
+summary(Htrain$H.PTS)
+summary(Htest$H.PTS)
+
+summary(Rtrain$R.PTS)
+summary(Rtest$R.PTS)
+```
+
+Setting the seed at 100 seems to work pretty well -- although its not perfect, some of the other seed settings gave mean differences of greater than 0.5 points for Diff and more than a whole point for H.PTS and R.PTS
+
+Now we have to treat the data sets to only include the predictors and labels.
+
+```{r}
+sdtrain.treat <- sdtrain[,c(3, 7:31)]
+# Exclude Diff column from testing set
+sdtest.treat <- sdtest[,c(7:31)]
+
+Htrain.treat <- Htrain[,c(5:32)]
+# Exclude H.PTS col from testing set
+Htest.treat <- Htest[,c(5:31)]
+
+Rtrain.treat <- Rtrain[,c(5:31, 33)]
+# Exclude R.PTS col from testing set
+Rtest.treat <- Rtest[,c(5:31)]
+```
+
+## Linear Regression using only Vegas
+
+```{r}
+excloutstrain <- exclouts[(id == 1),]
+excloutstest <- exclouts[(id == 2),]
+```
+
+
+```{r}
+veg01 <- lm(Diff ~ SPREAD, data = excloutstrain)
+summary(veg01)
+```
+
+To test Vegas's success at predicting the Home and Road team scores, we need to calculate the implied team totals. The implied score for the game is a function of the Vegas TOTAL (a.k.a. the Over/Under line) and the SPREAD.
+
+```{r}
+excloutstrain <- excloutstrain %>%
+  mutate(H.Impl = (TOTAL / 2) - (SPREAD / 2)) %>%
+  mutate(R.Impl = (TOTAL / 2) + (SPREAD / 2))
+
+veg02 <- lm(H.PTS ~ H.Impl, data = excloutstrain)
+summary(veg02)
+```
+
+```{r}
+veg03 <- lm(R.PTS ~ R.Impl, data = excloutstrain)
+summary(veg03)
+```
+
+```{r}
+exclouts <- arrange(exclouts, desc(abs(sprError)))
+resultsDiff <- exclouts[(id == 2), c(1, 3, 4, 6, 72:74, 76)]
+
+resultsDiff$VegDiffPred <- predict.lm(veg01, excloutstest)
+
+excloutstest <- excloutstest %>%
+  mutate(H.Impl = (TOTAL / 2) - (SPREAD / 2)) %>%
+  mutate(R.Impl = (TOTAL / 2) + (SPREAD / 2))
+
+resultsDiff$VegHPred <- predict.lm(veg02, excloutstest)
+resultsDiff$VegRPred <- predict.lm(veg03, excloutstest)
+```
+
+
+## Linear Regression
+
+Now we'll try out some linear regressions with the data that I currently have, which is composed of the Four Factors, PACE, Offensive and Defensive Ratings, and Points Per Game.
+
+For each, I'll do a main effects only model and a model that includes logical interaction terms. For example, it makes sense to include the interaction between OeFG and DeFG since a team's effective field goal percentage is affected by how well their opponent defends field goal attempts.
+
+```{r}
+sdlm01 <- lm(Diff ~ ., data = sdtrain.treat)
+summary(sdlm01)
+```
+
+```{r}
+sdlm02 <- lm(Diff ~ dOeFG*dDeFG + dOTOV*dDTOV + dOREB*dDREB + dOFT*dFT + dOeFGL5*dDeFGL5 + dOTOVL5*dDTOVL5 + dOREBL5*dDREBL5 + dOFTL5*dFTL5 + dORTG*dDRTG + dORTGL5*dDRTGL5 + dPPG*dPPGA + dPPGL5*dPPGAL5, data = sdtrain.treat)
+summary(sdlm02)
+```
+
+Doesn't really seem to improve much upon the previous model (purely based on R-squared). LASSO regression should be able to improve upon this.
+
+
+```{r}
+resultsDiff$PredDifflm01 <- predict.lm(sdlm01, sdtest)
+resultsDiff$PredDifflm02 <- predict.lm(sdlm02, sdtest)
+```
+
+```{r}
+Hlm01 <- lm(H.PTS ~ ., data = Htrain.treat)
+summary(Hlm01)
+```
+
+```{r}
+Hlm02 <- lm(H.PTS ~ H.OeFG*R.DeFG + H.OTOV*R.DTOV + H.OREB*R.DREB + H.OFT*R.DFT + H.OeFGL5*R.DeFGL5 + H.OTOVL5*R.DTOVL5 + H.OREBL5*R.DREBL5 + H.OFTL5*R.DFTL5 + H.PACE*R.PACE + H.ORTG*R.DRTG + H.ORTGL5*R.DRTGL5 + H.PPG*R.PPGA + H.PPGL5*R.PPGAL5, data = Htrain.treat)
+summary(Hlm02)
+```
+
+Again, very little improvment over the linear model without interaction terms.
+
+```{r}
+Rlm01 <- lm(R.PTS ~ ., data = Rtrain.treat)
+summary(Rlm01)
+```
+
+```{r}
+Rlm02 <- lm(R.PTS ~ R.OeFG*H.DeFG + R.OTOV*H.DTOV + R.OREB*H.DREB + R.OFT*H.DFT + R.OeFGL5*H.DeFGL5 + R.OTOVL5*H.DTOVL5 + R.OREBL5*H.DREBL5 + R.OFTL5*H.DFTL5 + R.PACE*H.PACE + R.ORTG*H.DRTG + R.ORTGL5*H.DRTGL5 + R.PPG*H.PPGA + R.PPGL5*H.PPGAL5, data = Rtrain.treat)
+summary(Rlm02)
+```
+
+```{r}
+resultsDiff$PredHlm01 <- predict.lm(Hlm01, Htest)
+resultsDiff$PredHlm02 <- predict.lm(Hlm02, Htest)
+resultsDiff$PredRlm01 <- predict.lm(Rlm01, Rtest)
+resultsDiff$PredRlm02 <- predict.lm(Rlm02, Rtest)
+```
+
+
+## Linear Regression with Principal Components
+
+```{r}
+dpca5 <- lm(V6 ~ ., data = dscores5[(id == 1),])
+summary(dpca5)
+```
+
+```{r}
+dpca10 <- lm(V11 ~ ., data = dscores10[(id == 1),])
+summary(dpca10)
+```
+
+```{r}
+dpca15 <- lm(V16 ~ ., data = dscores15[(id == 1),])
+summary(dpca15)
+```
+
+As expected, the set with the first 15 principal components performs better than the sets with the first 5 or first 10 principal components. To save time, I'll only model based on the first 15 components, both for linear and LASSO regression.
+
+```{r}
+Hpca15 <- lm(V16 ~ ., data = hscores15[(id == 1),])
+summary(Hpca15)
+```
+
+```{r}
+Rpca15 <- lm(V16 ~ ., data = rscores15[(id == 1),])
+summary(Rpca15)
+```
+
+As expected, the principal component scores do not do as well in terms of explaining the variance of the testing set. The question is whether or limiting the collinearity between components will help prevent overfitting and yield better predictions.
+
+```{r}
+resultsDiff$dpcalm <- predict.lm(dpca15, dscores15[(id == 2),])
+resultsDiff$Hpcalm <- predict.lm(Hpca15, hscores15[(id == 2),])
+resultsDiff$Rpcalm <- predict.lm(Rpca15, rscores15[(id == 2),])
+```
+
+Let's write resultsDiff to a csv so that it can be loaded into other notebooks and the results of other models can be added. I'll comment out the command so that it can be included if the results need to be changed.
+
+```{r}
+# setwd("~/R/Betting Project")
+# write.csv(resultsDiff, "resultsDiff.csv")
+```
+

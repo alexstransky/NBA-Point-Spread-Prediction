@@ -1,0 +1,155 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(ROCR)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+setwd("~/R/Betting Project")
+resultsClass <- read.csv("resultsClass.csv")
+```
+
+```{r}
+setwd("~/R")
+source("fteplots.R")
+```
+
+
+```{r}
+preds <- cbind("RF" = resultsClass$RFPred, "XGBoost" = resultsClass$XGPred)
+pred.matr <- prediction(preds, labels = matrix((predrf$data$truth), nrow = length(predrf$data$truth), ncol = 2))
+perf.matr <- performance(pred.matr, "tpr", "fpr")
+plot(perf.matr, col = as.list(1:2))
+legend("bottomright", colnames(preds), inset = 0.05, pch = 15, col = c(1:2))
+```
+
+```{r}
+preds <- cbind("RF" = resultsClass$RFPred, "XGBoost" = resultsClass$XGPred, "Lasso" = resultsClass$lassoPred, "Logit" = resultsClass$log1Pred, "Logit PCA" = resultsClass$log3Pred)
+pred.matr <- prediction(preds, labels = matrix((predrf$data$truth), nrow = length(predrf$data$truth), ncol = 5))
+perf.matr <- performance(pred.matr, "tpr", "fpr")
+plot(perf.matr, col = as.list(2:6), xlim = c(0,1), ylim = c(0,1), main = "ROC Curve Comparison")
+colnames(preds)[3] <- "LASSO"
+legend("bottomright", colnames(preds), inset = 0.05, pch = 15, col = c(2:6))
+abline(a = 0, b = 1, lty = 2)
+```
+
+```{r}
+#Vegas CM
+confusionMatrix(resultsClass$VegPred, resultsClass$W.L)
+```
+
+
+```{r}
+#Basic Logit CM
+confusionMatrix(resultsClass$log1WL, resultsClass$W.L)
+```
+
+```{r}
+#PCA Logit CM
+confusionMatrix(resultsClass$log3WL, resultsClass$W.L)
+```
+
+```{r}
+#Random forest CM
+confusionMatrix(resultsClass$RFWL, resultsClass$W.L)
+```
+
+```{r}
+#XGBoost CM
+confusionMatrix(resultsClass$XGWL, resultsClass$W.L)
+```
+
+```{r}
+#LASSO CM
+confusionMatrix(resultsClass$lassoWL, resultsClass$W.L)
+```
+
+```{r}
+modelperf <- data.frame(cbind("Methods" = c("Vegas", "Logit", "PCA", "RF", "XGB", "LASSO"), "Accuracy" = c(0.6827, 0.6569, 0.6711, 0.6649, 0.6720, 0.6729), "Kappa" = c(0.3309, 0.2839, 0.3084, 0.3000, 0.3105, 0.3069)))
+```
+
+```{r}
+library(reshape2)
+
+modelperfmelt <- melt(modelperf, id.vars = "Methods")
+modelperfmelt$value <- as.numeric(modelperfmelt$value)
+
+ggplot(modelperfmelt, aes(x = Methods, y = value, fill = factor(variable))) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.80) +
+  scale_fill_discrete(
+    name = "Measure",
+    breaks = c("Accuracy", "Kappa"),
+    labels = c("Accuracy", "Kappa")
+  ) +
+  labs(title = "Classification Model Performance", subtitle = "LASSO, PCA, and XGB all close, but unable to surpass Vegas") +
+  xlab("Method") + ylab("Percentage") +
+  xlab("Method") + ylab("Percentage") +
+  scale_y_continuous(breaks = seq(0, 1, 0.1)) +
+  fte +
+  geom_hline(yintercept = 0, size=1.2, colour="#535353")
+```
+
+```{r}
+above75log1 <- resultsClass %>%
+  filter(resultsClass$log1Pred >= 0.75 | resultsClass$log1Pred <= 0.25)
+above75log3 <- resultsClass %>%
+  filter(resultsClass$log3Pred >= 0.75 | resultsClass$log3Pred <= 0.25)
+above75rf <- resultsClass %>%
+  filter(resultsClass$RFPred >= 0.75 | resultsClass$RFPred <= 0.25)
+above75xgb <- resultsClass %>%
+  filter(resultsClass$XGPred >= 0.75 | resultsClass$XGPred <= 0.25)
+above75lasso <- resultsClass %>%
+  filter(resultsClass$lassoPred >= 0.75 | resultsClass$lassoPred <= 0.25)
+```
+
+```{r}
+#Basic Logit CM
+confusionMatrix(above75log1$log1WL, above75log1$W.L)
+```
+
+```{r}
+#PCA Logit CM
+confusionMatrix(above75log3$log3WL, above75log3$W.L)
+```
+
+```{r}
+#Random forest CM
+confusionMatrix(above75rf$RFWL, above75rf$W.L)
+```
+
+```{r}
+#XGBoost CM
+confusionMatrix(above75xgb$XGWL, above75xgb$W.L)
+```
+
+```{r}
+#LASSO CM
+confusionMatrix(above75lasso$lassoWL, above75lasso$W.L)
+```
+
+```{r}
+above75 <- as.data.frame(cbind("Methods" = c("Logit", "PCA", "RF", "XGB", "LASSO"), "Accuracy" = c(0.8155, 0.8098, 0.7353, 0.8026, 0.8261), "Kappa" = c(0.5274, 0.4837, 0.3864, 0.4640, 0.4834)))
+```
+
+```{r}
+above75melt <- melt(above75, id.vars = "Methods")
+above75melt$value <- as.numeric(above75melt$value)
+ggplot(above75melt, aes(x = Methods, y = value, fill = factor(variable))) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.80) +
+  scale_fill_discrete(
+    name = "Measure",
+    breaks = c("Accuracy", "Kappa"),
+    labels = c("Accuracy", "Kappa")
+  ) +
+  labs(title = "Model Performance with > 75% Probability", subtitle = "LASSO and logit perform well; RF model lags behind again") +
+  xlab("Method") + ylab("Percentage") +
+  scale_y_continuous(breaks = seq(0, 1, 0.1)) +
+  fte +
+  geom_hline(yintercept = 0, size=1.2, colour="#535353")
+```
+

@@ -1,0 +1,166 @@
+---
+title: "Regularized Modeling Regression"
+output: html_notebook
+---
+
+## Load packages and results data
+
+```{r}
+require(dplyr)
+require(ggplot2)
+require(Metrics)
+require(glmnet)
+```
+
+```{r}
+setwd("~/R/Betting Project")
+resultsDiff <- read.csv("resultsDiff.csv")
+```
+
+## Generate training and testing sets
+
+The data comes from running the "EDA and Factor Analysis" notebook, where the dataframes sdexclouts, exclouts.H, and exclouts.R were generated. To conserve space, the code for generating those data frames from the raw data is not included here. 
+
+We'll want to set the seed to get a consistent sampling across all of the different data sets and models. I decided to go with a 75/25 split for the training and testing sets. I tested out a couple different seed setting to find a value that gave relatively similar mean values for the label across the different data frames (don't want training and testing sets that are too dissimilar).
+
+```{r}
+set.seed(100)
+id <- sample(2, nrow(sdexclouts), replace = TRUE, prob = c(0.75, 0.25))
+
+sdtrain <- sdexclouts[(id == 1),]
+sdtest <- sdexclouts[(id == 2),]
+
+Htrain <- exclouts.H[(id == 1),]
+Htest <- exclouts.H[(id == 2),]
+
+Rtrain <- exclouts.R[(id == 1),]
+Rtest <- exclouts.R[(id == 2),]
+
+summary(sdtrain$Diff)
+summary(sdtest$Diff)
+
+summary(Htrain$H.PTS)
+summary(Htest$H.PTS)
+
+summary(Rtrain$R.PTS)
+summary(Rtest$R.PTS)
+```
+
+Setting the seed at 100 seems to work pretty well -- although its not perfect, some of the other seed settings gave mean differences of greater than 0.5 points for Diff and more than a whole point for H.PTS and R.PTS
+
+Now we have to treat the data sets to only include the predictors and labels.
+
+```{r}
+sdtrain.treat <- sdtrain[,c(3, 7:31)]
+# Exclude Diff column from testing set
+sdtest.treat <- sdtest[,c(7:31)]
+
+Htrain.treat <- Htrain[,c(5:32)]
+# Exclude H.PTS col from testing set
+Htest.treat <- Htest[,c(5:31)]
+
+Rtrain.treat <- Rtrain[,c(5:31, 33)]
+# Exclude R.PTS col from testing set
+Rtest.treat <- Rtest[,c(5:31)]
+```
+
+## LASSO Regression (Spread) (Difference)
+
+```{r}
+sd.lasso1 <- glmnet(as.matrix(sdtrain.treat[,2:26]), as.matrix(sdtrain.treat[,1]), family = "gaussian", alpha = 1)
+pred <- predict(sd.lasso1, as.matrix(sdtest.treat))
+rmse(sdtest$Diff, pred)
+```
+
+Let's see what performs the best among the generalized linear models. 
+
+```{r}
+for(i in 0:10){
+  assign(paste("fit", i, sep = ""), cv.glmnet(as.matrix(sdtrain.treat[,2:26]), as.matrix(sdtrain.treat[,1]), type.measure = "mse", family = "gaussian", alpha = i / 10))
+}
+```
+
+```{r}
+(rmse0 <- rmse(sdtest$Diff, predict(fit0, as.matrix(sdtest.treat))))
+(rmse2 <- rmse(sdtest$Diff, predict(fit2, as.matrix(sdtest.treat))))
+(rmse4 <- rmse(sdtest$Diff, predict(fit4, as.matrix(sdtest.treat))))
+(rmse6 <- rmse(sdtest$Diff, predict(fit6, as.matrix(sdtest.treat))))
+(rmse8 <- rmse(sdtest$Diff, predict(fit8, as.matrix(sdtest.treat))))
+(rmse10 <- rmse(sdtest$Diff, predict(fit10, as.matrix(sdtest.treat))))
+```
+
+```{r}
+sd.lasso2 <- fit2
+```
+
+
+## LASSO Regression (Spread) (Home)
+
+```{r}
+H.lasso1 <- glmnet(as.matrix(Htrain.treat[,1:27]), as.matrix(Htrain.treat[,28]), family = "gaussian", alpha = 1)
+pred <- predict(H.lasso1, as.matrix(Htest.treat))
+rmse(Htest$H.PTS, pred)
+```
+
+Let's see what performs the best among the generalized linear models. 
+
+```{r}
+for(i in 0:10){
+  assign(paste("fit", i, sep = ""), cv.glmnet(as.matrix(Htrain.treat[,1:27]), as.matrix(Htrain.treat[,28]), type.measure = "mse", family = "gaussian", alpha = i / 10))
+}
+```
+
+```{r}
+(rmse0 <- rmse(Htest$H.PTS, predict(fit0, as.matrix(Htest.treat))))
+(rmse2 <- rmse(Htest$H.PTS, predict(fit2, as.matrix(Htest.treat))))
+(rmse4 <- rmse(Htest$H.PTS, predict(fit4, as.matrix(Htest.treat))))
+(rmse6 <- rmse(Htest$H.PTS, predict(fit6, as.matrix(Htest.treat))))
+(rmse8 <- rmse(Htest$H.PTS, predict(fit8, as.matrix(Htest.treat))))
+(rmse10 <- rmse(Htest$H.PTS, predict(fit10, as.matrix(Htest.treat))))
+```
+```{r}
+H.lasso2 <- fit2
+```
+
+## LASSO Regression (Spread) (Road)
+
+```{r}
+R.lasso1 <- glmnet(as.matrix(Rtrain.treat[,1:27]), as.matrix(Rtrain.treat[,28]), family = "gaussian", alpha = 1)
+pred <- predict(R.lasso1, as.matrix(Rtest.treat))
+rmse(Rtest$R.PTS, pred)
+```
+
+Let's see what performs the best among the generalized linear models. 
+
+```{r}
+for(i in 0:10){
+  assign(paste("fit", i, sep = ""), cv.glmnet(as.matrix(Rtrain.treat[,1:27]), as.matrix(Rtrain.treat[,28]), type.measure = "mse", family = "gaussian", alpha = i / 10))
+}
+```
+
+```{r}
+(rmse0 <- rmse(Rtest$R.PTS, predict(fit0, as.matrix(Rtest.treat))))
+(rmse2 <- rmse(Rtest$R.PTS, predict(fit2, as.matrix(Rtest.treat))))
+(rmse4 <- rmse(Rtest$R.PTS, predict(fit4, as.matrix(Rtest.treat))))
+(rmse6 <- rmse(Rtest$R.PTS, predict(fit6, as.matrix(Rtest.treat))))
+(rmse8 <- rmse(Rtest$R.PTS, predict(fit8, as.matrix(Rtest.treat))))
+(rmse10 <- rmse(Rtest$R.PTS, predict(fit10, as.matrix(Rtest.treat))))
+```
+
+```{r}
+R.lasso2 <- fit2
+```
+
+```{r}
+resultsDiff$PredDiffglm <- predict(sd.lasso2, as.matrix(sdtest.treat))
+resultsDiff$PredHglm <- predict(H.lasso2, as.matrix(Htest.treat))
+resultsDiff$PredRglm <- predict(R.lasso2, as.matrix(Rtest.treat))
+```
+
+## Print new resultsDiff document
+
+```{r}
+setwd("~/R/Betting Project")
+write.csv(resultsDiff, "resultsDiff.csv")
+```
+

@@ -1,0 +1,341 @@
+---
+title: "Win/Loss Classification"
+output: html_notebook
+---
+
+## Load Data and EXamine Distributions
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(Metrics)
+library(caret)
+```
+
+```{r}
+sdexclouts$WL <- if_else(
+  sdexclouts$Diff < 0,
+  1,
+  0
+)
+
+```
+
+```{r}
+set.seed(100)
+id <- sample(2, nrow(sdexclouts), replace = TRUE, prob = c(0.75, 0.25))
+
+sdtrain <- sdexclouts[(id == 1),]
+sdtest <- sdexclouts[(id == 2),]
+```
+
+```{r}
+sdtrain.treat <- sdtrain[,c(7:32)]
+sdtest.treat <- sdtest[,c(7:32)]
+
+cat("Training Win Distribution")
+table(sdtrain.treat$WL)
+cat("\n")
+cat("Testing Win Distribution")
+table(sdtest.treat$WL)
+```
+
+## Vegas and Results Data Frame generation
+
+```{r}
+exclouts <- arrange(exclouts, desc(abs(sprError)))
+resultsClass <- exclouts[(id == 2), c(1, 3, 4, 5, 6)]
+
+resultsClass$W.L <- if_else(
+  resultsClass$W.L == "W",
+  1,
+  0
+)
+
+resultsClass$VegPred <- if_else(
+  resultsClass$SPREAD <= 0,
+  1,
+  0
+)
+
+table(resultsClass$W.L, resultsClass$VegPred)
+```
+
+```{r}
+accuracy(resultsClass$W.L, resultsClass$VegPred)
+Metrics::auc(resultsClass$W.L, resultsClass$VegPred)
+```
+
+## Logit Modeling
+
+```{r}
+logit1 <- glm(WL ~ ., data = sdtrain.treat, family = binomial)
+summary(logit1)
+```
+
+```{r}
+resultsClass$log1Pred = predict(logit2, sdtest.treat[,1:25], type = "response")
+resultsClass$log1WL = if_else(
+  resultsClass$log1Pred >= 0.50,
+  1,
+  0
+)
+
+accuracy(resultsClass$W.L, resultsClass$log1WL)
+Metrics::auc(resultsClass$W.L, resultsClass$log1WL)
+```
+
+
+```{r}
+logit2 <- glm(WL ~ dOeFG*dDeFG + dOTOV*dDTOV + dOREB*dDREB + dOFT*dFT + dOeFGL5*dDeFGL5 + dOTOVL5*dDTOVL5 + dOREBL5*dDREBL5 + dOFTL5*dFTL5 + dORTG*dDRTG + dORTGL5*dDRTGL5 + dPPG*dPPGA + dPPGL5*dPPGAL5, data = sdtrain.treat, family = binomial)
+summary(logit2)
+```
+
+```{r}
+resultsClass$log2Pred = predict(logit2, sdtest.treat[,1:25], type = "response")
+resultsClass$log2WL = if_else(
+  resultsClass$log2Pred >= 0.50,
+  1,
+  0
+)
+
+accuracy(resultsClass$W.L, resultsClass$log2WL)
+Metrics::auc(resultsClass$W.L, resultsClass$log2WL)
+```
+
+Makes the same predictions as the logit1 model.
+
+Let's try the principal component analysis results.
+
+```{r}
+dscores15$WL <- if_else(
+  dscores15$V16 < 0,
+  1,
+  0
+)
+
+logit3 <- glm(WL ~ .-V16, data = dscores15[(id == 1),], family = binomial)
+summary(logit3)
+```
+
+```{r}
+resultsClass$log3Pred = predict(logit3, dscores15[(id == 2),], type = "response")
+resultsClass$log3WL = if_else(
+  resultsClass$log3Pred >= 0.50,
+  1,
+  0
+)
+
+accuracy(resultsClass$W.L, resultsClass$log3WL)
+Metrics::auc(resultsClass$W.L, resultsClass$log3WL)
+```
+
+## Random Forest
+
+```{r}
+library(mlr)
+library(randomForest)
+```
+
+```{r}
+#Convert wins/losses to factor instead of numeric
+sdtrain.treat$WL <- as.factor(sdtrain.treat$WL)
+sdtest.treat$WL <- as.factor(sdtest.treat$WL)
+
+#Create a task
+traintask <- makeClassifTask(data = sdtrain.treat, target = "WL")
+testtask <- makeClassifTask(data = sdtest.treat, target = "WL")
+
+#Create a learner
+bag <- makeLearner("classif.rpart", predict.type = "response")
+bag.lrn <- makeBaggingWrapper(learner = bag, bw.iters = 100, bw.replace = T)
+```
+
+The bagging algorithm is set up to grow 100 trees on randomized samples with data replacement (bw.replace = T). To check performance, we'll also set up validation strategy.
+
+```{r}
+rdesc <- makeResampleDesc("CV", iters = 5)
+rin <- makeResampleInstance(rdesc, task = traintask)
+```
+
+```{r}
+r <- resample(learner = bag.lrn, task = traintask, resampling = rdesc, measures = list(tpr, fpr, fnr, fpr, acc), show.info = T)
+```
+
+Now for the random forest learner.
+
+```{r}
+rf.lrn <- makeLearner("classif.randomForest")
+rf.lrn$par.vals <- list(ntree = 100L, importance = T)
+r <- resample(learner = rf.lrn, task = traintask, resampling = rdesc, measures = list(tpr, fpr, fnr, fpr, acc))
+```
+
+Bagging returns a higher accuracy than random forest in this instance. Let's try and improve the random forest model's accuracy.
+
+```{r}
+getParamSet(rf.lrn)
+```
+
+```{r}
+#Set parameter space
+params <- makeParamSet(makeIntegerParam("mtry", lower = 2, upper = 9), makeIntegerParam("nodesize", lower = 10, upper = 50))
+
+#Set optimization technique
+ctrl <- makeTuneControlRandom(maxit = 50L)
+
+#Tuning
+tune <- tuneParams(learner = rf.lrn, task = traintask, resampling = rdesc, measures = list(acc), par.set = params, control = ctrl, show.info = F)
+tune
+```
+
+```{r}
+#Set optimization technique
+ctrl <- makeTuneControlGrid(resolution = 20)
+
+#Tuning
+tune <- tuneParams(learner = rf.lrn, task = traintask, resampling = rdesc, measures = list(acc), par.set = params, control = ctrl, show.info = T)
+tune$x
+```
+
+
+```{r}
+rf.lrn$par.vals <- list(mtry = 4, nodesize = 50, ntree = 100L, importance = T, cutoff = c(0.53, 0.47))
+r <- resample(learner = rf.lrn, task = traintask, resampling = rdesc, measures = list(tpr, fpr, fnr, acc))
+```
+
+```{r}
+rf.lrn$predict.type <- "prob"
+m = mlr::train(rf.lrn, traintask)
+predrf <- predict(m, testtask, type = "prob")
+predrf$data
+```
+
+```{r}
+resultsClass$RFPred <- predrf$data$prob.1
+resultsClass$RFWL <- pred$data$response
+
+accuracy(resultsClass$W.L, resultsClass$RFWL)
+Metrics::auc(resultsClass$W.L, resultsClass$RFWL)
+```
+
+```{r}
+rf_cm <- confusionMatrix(resultsClass$RFWL, resultsClass$W.L)
+rf_cm
+```
+
+
+
+## XGBoost
+
+```{r}
+library(xgboost)
+```
+
+```{r}
+params <- list(booster = "gbtree", objective = "binary:logistic", eta = 0.3, gamma = 0, max_depth = 6, min_child_weight = 1, subsample = 1, colsample_bytree = 1)
+
+sdtrain.treat$WL <- as.numeric(sdtrain.treat$WL)-1
+
+xgbcv <- xgb.cv(params = params, data = as.matrix(sdtrain.treat[,1:25]), label = sdtrain.treat[,26], nrounds = 30, nfold = 5, showsd = T, stratified = T, print_every_n = 10, early_stopping_rounds = 20, maximize = F)
+```
+
+```{r}
+xgb1 <- xgboost(params = params, data = as.matrix(sdtrain.treat[,1:25]), label = sdtrain.treat[,26], nrounds = 8, eval_metric = "rmse")
+```
+
+```{r}
+xgbpred <- predict(xgb1, as.matrix(sdtest.treat[,1:25]))
+xgbpred <- if_else(xgbpred > 0.5, 1, 0)
+
+accuracy(resultsClass$W.L, xgbpred)
+Metrics::auc(resultsClass$W.L, xgbpred)
+```
+
+```{r}
+confusionMatrix(xgbpred, resultsClass$W.L)
+```
+
+```{r}
+#Create learner
+xg.lrn <- makeLearner("classif.xgboost", predict.type = "response")
+xg.lrn$par.vals <- list(objective = "binary:logistic", eval_metric = "error", nrounds = 100L, eta = 0.1)
+
+#Set parameter space
+params <- makeParamSet(makeDiscreteParam("booster", values = c("gbtree", "gblinear")), makeIntegerParam("max_depth", lower = 3L, upper = 10L), makeNumericParam("min_child_weight", lower = 1L, upper = 10L), makeNumericParam("subsample", lower = 0.5, upper = 1), makeNumericParam("colsample_bytree", lower = 0.5, upper = 1))
+
+#Resampling strategy
+rdesc <- makeResampleDesc("CV", stratify = T, iters = 5L)
+
+#Search strategy
+ctrl <- makeTuneControlRandom(maxit = 20L)
+
+mytune <- tuneParams(learner = xg.lrn, task = traintask, resampling = rdesc, measures = acc, par.set = params, control = ctrl, show.info = F)
+mytune$x
+mytune$y
+```
+
+```{r}
+lrn_tune <- setHyperPars(xg.lrn, par.vals = mytune$x)
+
+lrn_tune$predict.type <- "prob"
+xgmodel <- mlr::train(lrn_tune, traintask)
+xgpred <- predict(xgmodel, testtask, type = "prob")
+xgpred
+```
+
+
+```{r}
+resultsClass$XGPred <- xgpred$data$prob.1
+resultsClass$XGWL <- xgpred$data$response
+confusionMatrix(resultsClass$XGWL, resultsClass$W.L)
+```
+
+## Generalized
+
+```{r}
+library(glmnet)
+
+sdtrain.treat$WL <- as.factor(sdtrain.treat$WL)
+
+xfactors <- model.matrix(WL ~ ., data = sdtrain.treat)[, -1]
+x <- as.matrix(data.frame(xfactors))
+
+lasso1 <- glmnet(x, y = as.factor(sdtrain.treat$WL), alpha = 0, family = "binomial")
+plot(lasso1, xvar = "lambda")
+
+```
+
+```{r}
+cv.glmod <- cv.glmnet(x = as.matrix(sdtrain.treat[,1:25]), y = (as.numeric(sdtrain.treat[,26])-1), alpha = 0)
+plot(cv.glmod)
+```
+
+```{r}
+(best.lambda <- cv.glmod$lambda.min)
+```
+
+
+```{r}
+predlasso <- predict(lasso1, s = best.lambda, as.matrix(sdtest.treat[,1:25]), type = "response")
+predlassfact <- if_else(
+  predlasso > 0.50,
+  1,
+  0
+)
+confusionMatrix(predlassfact, resultsClass$W.L)
+```
+
+```{r}
+resultsClass$lassoPred <- predict(lasso1, s = best.lambda, as.matrix(sdtest.treat[,1:25]), type = "response")
+resultsClass$lassoWL <- if_else(
+  predlasso > 0.50,
+  1,
+  0
+)
+```
+
+```{r}
+# setwd("~/R/Betting Project")
+# write.csv(resultsClass, "resultsClass.csv")
+```
+

@@ -1,0 +1,427 @@
+---
+title: "Regression Results"
+output: html_notebook
+---
+
+## Load Data and Packages
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(Metrics)
+library(caret)
+library(lubridate)
+library(reshape2)
+```
+
+```{r}
+setwd("~/R/Betting Project")
+resultsDiff <- read.csv("resultsDiff.csv")
+resultsDiff$ATS <- if_else(
+  resultsDiff$Diff < resultsDiff$SPREAD,
+  "H",
+  if_else(
+    resultsDiff$Diff > resultsDiff$SPREAD,
+    "R",
+    "P"
+  )
+)
+```
+
+## Assessing Model Accuracy
+
+### Vegas
+
+```{r}
+resultsVegas <- resultsDiff[,c(4:5, 8, 10:12)]
+
+resultsVegas$CombPred <- resultsVegas$VegRPred - resultsVegas$VegHPred
+rmse(resultsVegas$Diff, resultsVegas$VegDiffPred)
+rmse(resultsVegas$Diff, resultsVegas$CombPred)
+```
+
+### Linear Regression
+
+```{r}
+resultsLinear <- resultsDiff[,c(4:5, 8, 13, 15, 17, 31)]
+
+resultsLinear$CombPred <- resultsLinear$PredRlm01 - resultsLinear$PredHlm01
+rmse(resultsLinear$PredDifflm01, resultsLinear$Diff)
+rmse(resultsLinear$CombPred, resultsLinear$Diff)
+```
+
+```{r}
+resultsLinear$PredictDiff <- if_else(
+  resultsLinear$PredDifflm01 < resultsLinear$SPREAD,
+  "H",
+  if_else(
+    resultsLinear$PredDifflm01 > resultsLinear$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsLinear$PredictDiff, resultsLinear$ATS)
+```
+
+```{r}
+resultsLinear$PredictComb <- if_else(
+  resultsLinear$CombPred < resultsLinear$SPREAD,
+  "H",
+  if_else(
+    resultsLinear$CombPred > resultsLinear$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsLinear$PredictComb, resultsLinear$ATS)
+```
+
+### PCA Regression
+
+```{r}
+resultsPCA <- resultsDiff[,c(4:5, 8, 19:21, 31)]
+
+resultsPCA$CombPred <- resultsPCA$Rpcalm - resultsPCA$Hpcalm
+rmse(resultsPCA$dpcalm, resultsPCA$Diff)
+rmse(resultsPCA$CombPred, resultsPCA$Diff)
+```
+
+```{r}
+resultsPCA$PredictDiff <- if_else(
+  resultsPCA$dpcalm < resultsPCA$SPREAD,
+  "H",
+  if_else(
+    resultsPCA$dpcalm > resultsPCA$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsPCA$PredictDiff, resultsPCA$ATS)
+```
+
+```{r}
+resultsPCA$PredictComb <- if_else(
+  resultsPCA$CombPred < resultsPCA$SPREAD,
+  "H",
+  if_else(
+    resultsPCA$CombPred > resultsPCA$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsPCA$PredictComb, resultsPCA$ATS)
+```
+
+### RF Regression
+
+```{r}
+resultsRF <- resultsDiff[,c(4:5, 8, 22:24, 31)]
+
+resultsRF$CombPred <- resultsRF$PredRRF - resultsRF$PredHRF
+rmse(resultsRF$PredDiffRF, resultsRF$Diff)
+rmse(resultsRF$CombPred, resultsRF$Diff)
+```
+
+```{r}
+resultsRF$PredictDiff <- if_else(
+  resultsRF$PredDiffRF < resultsRF$SPREAD,
+  "H",
+  if_else(
+    resultsRF$PredDiffRF > resultsRF$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsRF$PredictDiff, resultsRF$ATS)
+```
+
+```{r}
+resultsRF$PredictComb <- if_else(
+  resultsRF$CombPred < resultsRF$SPREAD,
+  "H",
+  if_else(
+    resultsRF$CombPred > resultsRF$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsRF$PredictComb, resultsRF$ATS)
+```
+
+### XGB Regression
+
+```{r}
+resultsXGB <- resultsDiff[,c(4:5, 8, 25:27, 31)]
+
+resultsXGB$CombPred <- resultsXGB$PredRXGB - resultsXGB$PredHXGB
+rmse(resultsXGB$PredDiffXGB, resultsXGB$Diff)
+rmse(resultsXGB$CombPred, resultsXGB$Diff)
+```
+
+```{r}
+resultsXGB$PredictDiff <- if_else(
+  resultsXGB$PredDiffXGB < resultsXGB$SPREAD,
+  "H",
+  if_else(
+    resultsXGB$PredDiffXGB > resultsXGB$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsXGB$PredictDiff, resultsXGB$ATS)
+```
+
+```{r}
+resultsXGB$PredictComb <- if_else(
+  resultsXGB$CombPred < resultsXGB$SPREAD,
+  "H",
+  if_else(
+    resultsXGB$CombPred > resultsXGB$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsXGB$PredictComb, resultsXGB$ATS)
+```
+
+### LASSO Regression
+
+```{r}
+resultsglm <- resultsDiff[,c(4:5, 8, 28:30, 31)]
+
+resultsglm$CombPred <- resultsglm$PredRglm - resultsglm$PredHglm
+rmse(resultsglm$PredDiffglm, resultsglm$Diff)
+rmse(resultsglm$CombPred, resultsglm$Diff)
+```
+
+```{r}
+resultsglm$PredictDiff <- if_else(
+  resultsglm$PredDiffglm < resultsglm$SPREAD,
+  "H",
+  if_else(
+    resultsglm$PredDiffglm > resultsglm$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsglm$PredictDiff, resultsglm$ATS)
+```
+
+```{r}
+resultsglm$PredictComb <- if_else(
+  resultsglm$CombPred < resultsglm$SPREAD,
+  "H",
+  if_else(
+    resultsglm$CombPred > resultsglm$SPREAD,
+    "R",
+    "P"
+  )
+)
+confusionMatrix(resultsglm$PredictComb, resultsglm$ATS)
+```
+
+## Spread Error over time
+
+```{r}
+resultsPCA$GAME.DATE <- ymd(resultsPCA$GAME.DATE)
+resultsPCA$MonthDay <- format(resultsPCA$GAME.DATE, "%d-%b")
+resultsPCA$Month <- as.numeric(format(resultsPCA$GAME.DATE, "%m"))
+
+for (i in 1:nrow(resultsPCA)) {
+  Year = as.numeric(format(resultsPCA$GAME.DATE[i], "%Y"))
+  
+  ifelse(
+    (resultsPCA$Month[i]  > 8),
+    resultsPCA$Season[i] <- paste(Year),
+    resultsPCA$Season[i] <- paste(Year-1)
+  )
+}
+```
+
+```{r}
+resultsPCA$Season <- as.numeric(resultsPCA$Season)
+resultsPCA$Season <- as.factor(resultsPCA$Season)
+resultsPCA$fakeYr <- if_else(
+  resultsPCA$Month > 8,
+  2000,
+  2001
+)
+resultsPCA$MonthDay <- ydm(paste0(resultsPCA$fakeYr, resultsPCA$MonthDay))
+```
+
+```{r}
+resultsPCA$resid <- abs(resultsPCA$dpcalm - resultsPCA$Diff)
+mean(resultsPCA$resid)
+```
+
+```{r}
+ggplot(data = resultsPCA, aes(x = MonthDay, y = resid, color = Season)) +
+  geom_point() +
+  geom_line(aes(group = 1)) +
+  scale_x_date("Date",
+    date_breaks = "1 month",
+    date_labels = "%b") +
+  facet_grid(facets = Season ~ ., margins = F)
+```
+
+```{r}
+resid_sum <- resultsPCA %>%
+  group_by(GAME.DATE) %>%
+  summarise(resid = rmse(dpcalm, Diff))
+```
+
+```{r}
+resid_sum$MonthDay <- format(resid_sum$GAME.DATE, "%d-%b")
+resid_sum$Month <- as.numeric(format(resid_sum$GAME.DATE, "%m"))
+
+for (i in 1:nrow(resid_sum)) {
+  Year = as.numeric(format(resid_sum$GAME.DATE[i], "%Y"))
+  
+  ifelse(
+    (resid_sum$Month[i]  > 8),
+    resid_sum$Season[i] <- paste(Year),
+    resid_sum$Season[i] <- paste(Year-1)
+  )
+}
+
+resid_sum$Season <- as.numeric(resid_sum$Season)
+resid_sum$Season <- as.factor(resid_sum$Season)
+resid_sum$fakeYr <- if_else(
+  resid_sum$Month > 8,
+  2000,
+  2001
+)
+resid_sum$MonthDay <- ydm(paste0(resid_sum$fakeYr, resid_sum$MonthDay))
+```
+```{r}
+mean(resid_sum$resid)
+```
+
+```{r}
+ggplot(data = resid_sum, aes(x = MonthDay, y = resid, color = Season)) +
+  geom_point(size = 1) +
+  geom_line(aes(group = 1)) +
+  scale_x_date("Date",
+    date_breaks = "1 month",
+    date_labels = "%b") +
+  geom_hline(yintercept = mean(resid_sum$resid), size = 0.8, colour = "#535353", lty = 3) +
+  facet_grid(facets = Season ~ ., margins = F) +
+  ggtitle("Change in RMSE over the course of the season") +
+  ylab("RMSE") +
+  withborderfte + 
+  theme(axis.text.y = element_text(size = 9))
+```
+
+```{r}
+modelperf.reg <- data.frame(cbind("Methods" = c("Vegas", "Linear", "PCA", "RF", "XGB", "LASSO"), "Difference" = c(10.977, 11.406, 11.379, 11.486, 11.536, 11.405), "Combination" = c(10.981, 11.470, 11.372, 11.587, 12.266, 11.428)))
+```
+
+```{r}
+modelperfmelt.reg <- melt(modelperf.reg, id.vars = "Methods")
+modelperfmelt.reg$value <- as.numeric(modelperfmelt.reg$value)
+
+ggplot(modelperfmelt.reg, aes(x = Methods, y = value, fill = factor(variable))) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.80) +
+  scale_fill_discrete(
+    name = "Model",
+    breaks = c("Difference", "Combination"),
+    labels = c("Difference", "Combination")
+  ) +
+  labs(title = "Regression Model Performance", subtitle = "Vegas significantly outperforms all the models") +
+  xlab("Method") + ylab("RMSE") +
+  scale_y_continuous(breaks = seq(0, 13, 2)) +
+  fte +
+  geom_hline(yintercept = 0, size=1.2, colour="#535353")
+```
+
+## Wager Confidence
+
+```{r}
+resultsLinear$value <- resultsLinear$CombPred - resultsLinear$SPREAD
+Linear2 <- resultsLinear %>%
+  filter(abs(value) >= 2)
+Linear4 <- resultsLinear %>%
+  filter(abs(value) >= 4)
+Linear6 <- resultsLinear %>%
+  filter(abs(value) >= 6)
+accuracy(Linear2$PredictComb, Linear2$ATS)
+accuracy(Linear4$PredictComb, Linear4$ATS)
+accuracy(Linear6$PredictComb, Linear6$ATS)
+```
+
+```{r}
+resultsPCA$value <- resultsPCA$CombPred - resultsPCA$SPREAD
+PCA2 <- resultsPCA %>%
+  filter(abs(value) >= 2)
+PCA4 <- resultsPCA %>%
+  filter(abs(value) >= 4)
+PCA6 <- resultsPCA %>%
+  filter(abs(value) >= 6)
+accuracy(PCA2$PredictComb, PCA2$ATS)
+accuracy(PCA4$PredictComb, PCA4$ATS)
+accuracy(PCA6$PredictComb, PCA6$ATS)
+```
+
+```{r}
+resultsRF$value <- resultsRF$CombPred - resultsRF$SPREAD
+RF2 <- resultsRF %>%
+  filter(abs(value) >= 2)
+RF4 <- resultsRF %>%
+  filter(abs(value) >= 4)
+RF6 <- resultsRF %>%
+  filter(abs(value) >= 6)
+accuracy(RF2$PredictComb, RF2$ATS)
+accuracy(RF4$PredictComb, RF4$ATS)
+accuracy(RF6$PredictComb, RF6$ATS)
+```
+
+```{r}
+resultsXGB$value <- resultsXGB$CombPred - resultsXGB$SPREAD
+XGB2 <- resultsXGB %>%
+  filter(abs(value) >= 2)
+XGB4 <- resultsXGB %>%
+  filter(abs(value) >= 4)
+XGB6 <- resultsXGB %>%
+  filter(abs(value) >= 6)
+accuracy(XGB2$PredictComb, XGB2$ATS)
+accuracy(XGB4$PredictComb, XGB4$ATS)
+accuracy(XGB6$PredictComb, XGB6$ATS)
+```
+
+```{r}
+resultsglm$value <- resultsglm$CombPred - resultsglm$SPREAD
+glm2 <- resultsglm %>%
+  filter(abs(value) >= 2)
+glm4 <- resultsglm %>%
+  filter(abs(value) >= 4)
+glm6 <- resultsglm %>%
+  filter(abs(value) >= 6)
+accuracy(glm2$PredictComb, glm2$ATS)
+accuracy(glm4$PredictComb, glm4$ATS)
+accuracy(glm6$PredictComb, glm6$ATS)
+```
+
+```{r}
+modelperf.val <- data.frame(cbind("Methods" = c("Linear", "PCA", "RF", "XGB", "LASSO"), "2+ Value" = c(0.5237, 0.5161, 0.5206, 0.4993, 0.5284), "4+ Value" = c(0.4846, 0.5051, 0.4944, 0.4958, 0.5117), "6+ Value" = c(0.4956, 0.5146, 0.4875, 0.5034, 0.5139)))
+```
+
+```{r}
+colnames(modelperf.val)[2:4] <- c("X2.Value", "X4.Value", "X6.Value")
+
+modelperfmelt.val <- melt(modelperf.val, id.vars = "Methods")
+modelperfmelt.val$value <- as.numeric(modelperfmelt.val$value)
+
+ggplot(modelperfmelt.val, aes(x = Methods, y = value, fill = factor(variable))) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.80) +
+  scale_fill_discrete(
+    name = "Value",
+    breaks = c("X2.Value", "X4.Value", "X6.Value"),
+    labels = c("2+", "4+", "6+")
+  ) +
+  labs(title = "Increased confidence leads to better accuracy?", subtitle = "Not so much...") +
+  xlab("Method") + ylab("Accuracy") +
+  scale_y_continuous(breaks = seq(0, 0.6, 0.1)) +
+  fte +
+  geom_hline(yintercept = 0, size=1.2, colour="#535353")
+```
+

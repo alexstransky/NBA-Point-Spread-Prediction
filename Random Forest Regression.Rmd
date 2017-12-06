@@ -1,0 +1,402 @@
+---
+title: "Random Forest Regression"
+author: "Alex Stransky"
+date: "November 22, 2017"
+output: html_notebook
+---
+
+## Load packages
+
+```{r}
+require(dplyr)
+require(ggplot2)
+# install.packages("randomForest")
+require(randomForest)
+# library(devtools)
+# install_github("swager/randomForestCI")
+require(randomForestCI)
+require(Metrics)
+```
+
+```{r}
+# setwd("~/R/Betting Project")
+# resultsDiff <- read.csv("resultsDiff.csv")
+```
+
+## Generate training and testing sets
+
+The data comes from running the "EDA and Factor Analysis" notebook, where the dataframes sdexclouts, exclouts.H, and exclouts.R were generated. To conserve space, the code for generating those data frames from the raw data is not included here. 
+
+We'll want to set the seed to get a consistent sampling across all of the different data sets and models. I decided to go with a 75/25 split for the training and testing sets. I tested out a couple different seed setting to find a value that gave relatively similar mean values for the label across the different data frames (don't want training and testing sets that are too dissimilar).
+
+```{r}
+set.seed(100)
+id <- sample(2, nrow(sdexclouts), replace = TRUE, prob = c(0.75, 0.25))
+
+sdtrain <- sdexclouts[(id == 1),]
+sdtest <- sdexclouts[(id == 2),]
+
+Htrain <- exclouts.H[(id == 1),]
+Htest <- exclouts.H[(id == 2),]
+
+Rtrain <- exclouts.R[(id == 1),]
+Rtest <- exclouts.R[(id == 2),]
+
+summary(sdtrain$Diff)
+summary(sdtest$Diff)
+
+summary(Htrain$H.PTS)
+summary(Htest$H.PTS)
+
+summary(Rtrain$R.PTS)
+summary(Rtest$R.PTS)
+```
+
+Setting the seed at 100 seems to work pretty well -- although its not perfect, some of the other seed settings gave mean differences of greater than 0.5 points for Diff and more than a whole point for H.PTS and R.PTS
+
+Now we have to treat the data sets to only include the predictors and labels.
+
+```{r}
+sdtrain.treat <- sdtrain[,c(3, 7:31)]
+# Exclude Diff column from testing set
+sdtest.treat <- sdtest[,c(7:31)]
+
+Htrain.treat <- Htrain[,c(5:32)]
+# Exclude H.PTS col from testing set
+Htest.treat <- Htest[,c(5:31)]
+
+Rtrain.treat <- Rtrain[,c(5:31, 33)]
+# Exclude R.PTS col from testing set
+Rtest.treat <- Rtest[,c(5:31)]
+```
+
+## Random Forest (Spread) (Difference)
+
+### Initial Model
+
+```{r}
+psd01 <- ncol(sdtrain.treat) - 1
+
+sdrf01 <- randomForest(
+  Diff ~ .,
+  data = sdtrain.treat,
+  mtry = psd01 / 3,
+  ntree = 500,
+  nodesize = 5
+)
+
+sdrf01
+```
+
+```{r}
+plot(sdrf01, main = "Error vs. Number of Trees")
+```
+
+```{r}
+sdrf01 <- randomForest(
+  Diff ~ .,
+  data = sdtrain.treat,
+  mtry = psd01 / 3,
+  ntree = 350,
+  nodesize = 5
+)
+
+sdrf01
+```
+
+### Parameter Tuning
+
+```{r}
+sdtest.treat <- cbind(sdtest.treat, sdtest$Diff)
+colnames(sdtest.treat)[26] <- "Diff"
+```
+
+```{r}
+ooberr.mtry = double(18)
+testerr.mtry = double(18)
+
+for(mtry in 1:18) {
+  rf = randomForest(Diff ~ ., data = sdtrain.treat, mtry = mtry, ntree = 350, nodesize = 5)
+  ooberr.mtry[mtry] = rf$mse[350] #Error for all trees fitted
+  pred <- predict(rf, sdtest.treat)
+  testerr.mtry[mtry] = with(sdtest.treat, mean((Diff - pred) ^ 2))
+  cat(mtry, " ")
+}
+```
+
+```{r}
+ooberr.mtry
+testerr.mtry
+```
+
+
+```{r}
+err_df1 <- tbl_df(cbind(testerr.mtry, ooberr.mtry))
+
+ggplot(err_df1, aes(x = seq(1, mtry, 1))) +
+  geom_line(aes(y = testerr.mtry), color = "blue") +
+  geom_line(aes(y = ooberr.mtry), color = "red") +
+  ylab("Error") +
+  xlab("mtry") +
+  ggtitle("mtry Parameter Tuning") +
+  annotate("text", x = 5, y = 132.5, label = "Test Error", color = "blue", size = 3) +
+  annotate("text", x = 7.5, y = 131, label = "OOB Error", color = "red", size = 3)
+```
+
+```{r}
+ooberr.ns = double(7)
+testerr.ns = double(7)
+
+for(ns in 3:9) {
+  rf = randomForest(Diff ~ ., data = sdtrain.treat, mtry = 4, ntree = 350, nodesize = ns)
+  ooberr.ns[ns] = rf$mse[350] #Error for all trees fitted
+  pred <- predict(rf, sdtest.treat)
+  testerr.ns[ns] = with(sdtest.treat, mean((Diff - pred) ^ 2))
+  cat(ns, " ")
+}
+```
+```{r}
+ooberr.ns
+testerr.ns
+```
+
+```{r}
+err_df2 <- tbl_df(cbind(count = seq(3,9,1), testerr = testerr.ns[3:9], ooberr = ooberr.ns[3:9]))
+
+ggplot(err_df2, aes(x = count)) +
+  geom_line(aes(y = testerr), color = "blue") +
+  geom_line(aes(y = ooberr), color = "red") +
+  ylab("Error") +
+  xlab("Node Size") +
+  ggtitle("Node Size Parameter Tuning") +
+  annotate("text", x = 5, y = 132.5, label = "Test Error", color = "blue", size = 3) +
+  annotate("text", x = 5, y = 132.5, label = "OOB Error", color = "red", size = 3)
+```
+
+```{r}
+sdrf02 <- randomForest(
+  Diff ~ .,
+  data = sdtrain.treat,
+  mtry = 4,
+  ntree = 350,
+  nodesize = 8
+)
+
+sdrf02
+```
+
+```{r}
+resultsDiff$PredDiffRF <- predict(sdrf02, sdtest.treat[,1:25])
+```
+
+## Random Forest (Spread) (Home)
+
+### Initial Model
+
+```{r}
+pH01 <- ncol(Htrain.treat) - 1
+
+Hrf01 <- randomForest(
+  H.PTS ~ .,
+  data = Htrain.treat,
+  mtry = pH01 / 3,
+  ntree = 500,
+  nodesize = 5
+)
+
+Hrf01
+```
+
+```{r}
+plot(Hrf01)
+```
+
+### Parameter Tuning
+
+```{r}
+Htest.treat <- cbind(Htest.treat, Htest$H.PTS)
+colnames(Htest.treat)[28] <- "H.PTS"
+```
+
+```{r}
+ooberr.mtry = double(18)
+testerr.mtry = double(18)
+
+for(mtry in 1:18) {
+  rf = randomForest(H.PTS ~ ., data = Htrain.treat, mtry = mtry, ntree = 350, nodesize = 5)
+  ooberr.mtry[mtry] = rf$mse[350] #Error for all trees fitted
+  pred <- predict(rf, Htest.treat)
+  testerr.mtry[mtry] = with(Htest.treat, mean((H.PTS - pred) ^ 2))
+  cat(mtry, " ")
+}
+```
+
+```{r}
+ooberr.mtry
+testerr.mtry
+```
+
+
+```{r}
+err_df <- tbl_df(cbind(testerr.mtry, ooberr.mtry))
+
+ggplot(err_df, aes(x = seq(1, mtry, 1))) +
+  geom_line(aes(y = testerr.mtry), color = "blue") +
+  geom_line(aes(y = ooberr.mtry), color = "red") +
+  ylab("Error") +
+  xlab("mtry")
+```
+
+```{r}
+ooberr.ns = double(7)
+testerr.ns = double(7)
+
+for(ns in 3:9) {
+  rf = randomForest(H.PTS ~ ., data = Htrain.treat, mtry = 12, ntree = 350, nodesize = ns)
+  ooberr.ns[ns] = rf$mse[350] #Error for all trees fitted
+  pred <- predict(rf, Htest.treat)
+  testerr.ns[ns] = with(Htest.treat, mean((H.PTS - pred) ^ 2))
+  cat(ns, " ")
+}
+```
+
+```{r}
+ooberr.ns
+testerr.ns
+```
+
+```{r}
+err_df <- tbl_df(cbind(count = seq(3,9,1), testerr = testerr.ns[3:9], ooberr = ooberr.ns[3:9]))
+
+ggplot(err_df, aes(x = count)) +
+  geom_line(aes(y = testerr), color = "blue") +
+  geom_line(aes(y = ooberr), color = "red") +
+  ylab("Error") +
+  xlab("Node Size")
+```
+
+```{r}
+Hrf02 <- randomForest(
+  H.PTS ~ .,
+  data = Htrain.treat,
+  mtry = 12,
+  ntree = 350,
+  nodesize = 7
+)
+
+Hrf02
+```
+
+```{r}
+resultsDiff$PredHRF <- predict(Hrf02, Htest.treat[,1:27])
+```
+
+## Random Forest (Spread) (Road)
+
+### Initial Model
+
+```{r}
+pR01 <- ncol(Rtrain.treat) - 1
+
+Rrf01 <- randomForest(
+  R.PTS ~ .,
+  data = Rtrain.treat,
+  mtry = pR01 / 3,
+  ntree = 500,
+  nodesize = 5
+)
+
+Rrf01
+```
+
+```{r}
+plot(Rrf01)
+```
+
+### Parameter Tuning
+
+```{r}
+Rtest.treat <- cbind(Rtest.treat, Rtest$R.PTS)
+colnames(Rtest.treat)[28] <- "R.PTS"
+```
+
+```{r}
+ooberr.mtry = double(18)
+testerr.mtry = double(18)
+
+for(mtry in 1:18) {
+  rf = randomForest(R.PTS ~ ., data = Rtrain.treat, mtry = mtry, ntree = 350, nodesize = 5)
+  ooberr.mtry[mtry] = rf$mse[350] #Error for all trees fitted
+  pred <- predict(rf, Rtest.treat)
+  testerr.mtry[mtry] = with(Rtest.treat, mean((R.PTS - pred) ^ 2))
+  cat(mtry, " ")
+}
+```
+
+```{r}
+ooberr.mtry
+testerr.mtry
+```
+
+
+```{r}
+err_df <- tbl_df(cbind(testerr.mtry, ooberr.mtry))
+
+ggplot(err_df, aes(x = seq(1, mtry, 1))) +
+  geom_line(aes(y = testerr.mtry), color = "blue") +
+  geom_line(aes(y = ooberr.mtry), color = "red") +
+  ylab("Error") +
+  xlab("mtry")
+```
+
+```{r}
+ooberr.ns = double(7)
+testerr.ns = double(7)
+
+for(ns in 3:9) {
+  rf = randomForest(R.PTS ~ ., data = Rtrain.treat, mtry = 6, ntree = 350, nodesize = ns)
+  ooberr.ns[ns] = rf$mse[350] #Error for all trees fitted
+  pred <- predict(rf, Rtest.treat)
+  testerr.ns[ns] = with(Rtest.treat, mean((R.PTS - pred) ^ 2))
+  cat(ns, " ")
+}
+```
+
+```{r}
+ooberr.ns
+testerr.ns
+```
+
+```{r}
+err_df <- tbl_df(cbind(count = seq(3,9,1), testerr = testerr.ns[3:9], ooberr = ooberr.ns[3:9]))
+
+ggplot(err_df, aes(x = count)) +
+  geom_line(aes(y = testerr), color = "blue") +
+  geom_line(aes(y = ooberr), color = "red") +
+  ylab("Error") +
+  xlab("Node Size")
+```
+
+```{r}
+Rrf02 <- randomForest(
+  R.PTS ~ .,
+  data = Rtrain.treat,
+  mtry = 6,
+  ntree = 350,
+  nodesize = 8
+)
+
+Rrf02
+```
+
+```{r}
+resultsDiff$PredRRF <- predict(Rrf02, Rtest.treat[,1:27])
+```
+
+## Print new resultsDiff document
+
+```{r}
+# setwd("~/R/Betting Project")
+# write.csv(resultsDiff, "resultsDiff.csv")
+```
+

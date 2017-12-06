@@ -1,0 +1,220 @@
+---
+title: "XGBoost Regression"
+output: html_notebook
+---
+
+```{r}
+require(dplyr)
+require(ggplot2)
+# install.packages("xgboost")
+require(xgboost)
+require(Metrics)
+require(mlr)
+require(parallel)
+require(parallelMap)
+```
+
+```{r}
+setwd("~/R/Betting Project")
+resultsDiff <- read.csv("resultsDiff.csv")
+```
+
+## Generate training and testing sets
+
+The data comes from running the "EDA and Factor Analysis" notebook, where the dataframes sdexclouts, exclouts.H, and exclouts.R were generated. To conserve space, the code for generating those data frames from the raw data is not included here. 
+
+We'll want to set the seed to get a consistent sampling across all of the different data sets and models. I decided to go with a 75/25 split for the training and testing sets. I tested out a couple different seed setting to find a value that gave relatively similar mean values for the label across the different data frames (don't want training and testing sets that are too dissimilar).
+
+```{r}
+set.seed(100)
+id <- sample(2, nrow(sdexclouts), replace = TRUE, prob = c(0.75, 0.25))
+
+sdtrain <- sdexclouts[(id == 1),]
+sdtest <- sdexclouts[(id == 2),]
+
+Htrain <- exclouts.H[(id == 1),]
+Htest <- exclouts.H[(id == 2),]
+
+Rtrain <- exclouts.R[(id == 1),]
+Rtest <- exclouts.R[(id == 2),]
+
+summary(sdtrain$Diff)
+summary(sdtest$Diff)
+
+summary(Htrain$H.PTS)
+summary(Htest$H.PTS)
+
+summary(Rtrain$R.PTS)
+summary(Rtest$R.PTS)
+```
+
+Setting the seed at 100 seems to work pretty well -- although its not perfect, some of the other seed settings gave mean differences of greater than 0.5 points for Diff and more than a whole point for H.PTS and R.PTS
+
+Now we have to treat the data sets to only include the predictors and labels.
+
+```{r}
+sdtrain.treat <- sdtrain[,c(3, 7:31)]
+# Exclude Diff column from testing set
+sdtest.treat <- sdtest[,c(7:31)]
+
+Htrain.treat <- Htrain[,c(5:32)]
+# Exclude H.PTS col from testing set
+Htest.treat <- Htest[,c(5:31)]
+
+Rtrain.treat <- Rtrain[,c(5:31, 33)]
+# Exclude R.PTS col from testing set
+Rtest.treat <- Rtest[,c(5:31)]
+```
+
+## XGBoost (Spread) (Difference)
+
+```{r}
+params <- list(booster = "gbtree", objective = "reg:linear", eta = 0.3, gamma = 0, max_depth = 6, min_child_weight = 1, subsample = 1, colsample_bytree = 1)
+
+sdxgb.cv <- xgb.cv(
+  params = params,
+  data = as.matrix(sdtrain.treat[,2:26]),
+  label = as.matrix(sdtrain.treat[,1]),
+  nrounds = 100,
+  nfold = 5, 
+  showsd = T,
+  stratified = T,
+  print_every_n = 10,
+  early_stopping_rounds = 30,
+  maximize = F
+)
+```
+```{r}
+sd.elog <- as.data.frame(sdxgb.cv$evaluation_log)
+sd.elog %>%
+  summarise(
+    ntrees.train = which.min(train_rmse_mean),
+    ntrees.test = which.min(test_rmse_mean)
+  )
+```
+
+```{r}
+sdxgb1 <- xgboost(
+  params = params,
+  data = as.matrix(sdtrain.treat[,2:26]),
+  label = as.matrix(sdtrain.treat[,1]),
+  nrounds = 5,
+  maximize = F,
+  eval_metric = "rmse"
+)
+
+xgbpred <- predict(sdxgb1, as.matrix(sdtest.treat))
+rmse(sdtest$Diff, xgbpred)
+```
+
+```{r}
+mat <- xgb.importance(feature_names = colnames(sdtest.treat[,-1]), sdxgb1)
+xgb.plot.importance(importance_matrix = mat[1:15])
+```
+
+## XGBoost (Spread) (Home)
+
+```{r}
+params <- list(booster = "gbtree", objective = "reg:linear", eta = 0.3, gamma = 0, max_depth = 6, min_child_weight = 1, subsample = 1, colsample_bytree = 1)
+
+Hxgb.cv <- xgb.cv(
+  params = params,
+  data = as.matrix(Htrain.treat[,1:27]),
+  label = as.matrix(Htrain.treat[,28]),
+  nrounds = 100,
+  nfold = 5, 
+  showsd = T,
+  stratified = T,
+  print_every_n = 10,
+  early_stopping_rounds = 30,
+  maximize = F
+)
+```
+
+```{r}
+H.elog <- as.data.frame(Hxgb.cv$evaluation_log)
+H.elog %>%
+  summarise(
+    ntrees.train = which.min(train_rmse_mean),
+    ntrees.test = which.min(test_rmse_mean)
+  )
+```
+
+```{r}
+Hxgb1 <- xgboost(
+  params = params,
+  data = as.matrix(Htrain.treat[,1:27]),
+  label = as.matrix(Htrain.treat[,28]),
+  nrounds = 15,
+  maximize = F,
+  eval_metric = "rmse"
+)
+
+xgbpred <- predict(Hxgb1, as.matrix(Htest.treat))
+rmse(Htest$H.PTS, xgbpred)
+```
+
+```{r}
+mat <- xgb.importance(feature_names = colnames(Htest.treat[,-1]), Hxgb1)
+xgb.plot.importance(importance_matrix = mat[1:15])
+```
+
+## XGBoost (Spread) (Road)
+
+```{r}
+params <- list(booster = "gbtree", objective = "reg:linear", eta = 0.3, gamma = 0, max_depth = 6, min_child_weight = 1, subsample = 1, colsample_bytree = 1)
+
+Rxgb.cv <- xgb.cv(
+  params = params,
+  data = as.matrix(Rtrain.treat[,1:27]),
+  label = as.matrix(Rtrain.treat[,28]),
+  nrounds = 100,
+  nfold = 5, 
+  showsd = T,
+  stratified = T,
+  print_every_n = 10,
+  early_stopping_rounds = 30,
+  maximize = F
+)
+```
+
+```{r}
+R.elog <- as.data.frame(Rxgb.cv$evaluation_log)
+R.elog %>%
+  summarise(
+    ntrees.train = which.min(train_rmse_mean),
+    ntrees.test = which.min(test_rmse_mean)
+  )
+```
+
+```{r}
+Rxgb1 <- xgboost(
+  params = params,
+  data = as.matrix(Rtrain.treat[,1:27]),
+  label = as.matrix(Rtrain.treat[,28]),
+  nrounds = 14,
+  maximize = F,
+  eval_metric = "rmse"
+)
+
+xgbpred <- predict(Rxgb1, as.matrix(Rtest.treat))
+rmse(Rtest$R.PTS, xgbpred)
+```
+
+```{r}
+mat <- xgb.importance(feature_names = colnames(Rtest.treat[,-1]), Rxgb1)
+xgb.plot.importance(importance_matrix = mat[1:15])
+```
+
+```{r}
+resultsDiff$PredDiffXGB <- predict(sdxgb1, as.matrix(sdtest.treat))
+resultsDiff$PredHXGB <- predict(Hxgb1, as.matrix(Htest.treat))
+resultsDiff$PredRXGB <- predict(Rxgb1, as.matrix(Rtest.treat))
+```
+
+## Print new resultsDiff document
+
+```{r}
+# setwd("~/R/Betting Project")
+# write.csv(resultsDiff, "resultsDiff.csv")
+```
